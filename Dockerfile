@@ -1,44 +1,31 @@
-#---------------------------------------------------------------------------------------------
-# Copyright (c) Microsoft Corporation. All rights reserved.
-# Licensed under the MIT License. See License.txt in the project root for license information.
-#---------------------------------------------------------------------------------------------
+FROM alpine:3.4
 
-FROM python:3.5
+RUN apk add --no-cache --update python3 python3-dev libffi-dev openssl-dev git build-base bash \
+	&& python3 -m ensurepip \
+	&& rm -r /usr/lib/python*/ensurepip \
+	&& pip3 install --upgrade pip setuptools \
+	&& rm -r /root/.cache
 
-# Set the working directory
-WORKDIR azure-cli
-
-# bundle source code
-COPY . /azure-cli
-
-RUN pip install --upgrade pip
-
-# Build and install CLI
-RUN python setup.py sdist
+RUN cd /usr/bin \
+	&& ln -sf easy_install-3.5 easy_install \
+	&& ln -sf idle3.5 idle \
+	&& ln -sf pydoc3.5 pydoc \
+	&& ln -sf python3.5 python \
+	&& ln -sf python-config3.5 python-config \
+	&& ln -sf pip3.5 pip
+RUN git clone https://github.com/Azure/azure-cli /tmp/azure-cli
+RUN pip3 install --upgrade pip setuptools
+RUN cd /tmp/azure-cli && python3 setup.py sdist
 ENV AZURE_CLI_DISABLE_POST_INSTALL 1
-RUN pip install -f dist/ azure-cli
+RUN cd /tmp/azure-cli && pip3 install -f dist/ azure-cli
+RUN cd /tmp/azure-cli && for d in src/command_modules/azure-cli-*/; \
+	do MODULE_NAME=$(echo $d | cut -d '/' -f 3); \
+		cd $d; python setup.py sdist; \
+		pip3 install -f dist/ $MODULE_NAME; \
+		cd -; \
+	done
 
-# Build and install all command modules
-RUN for d in src/command_modules/azure-cli-*/; \
-    do MODULE_NAME=$(echo $d | cut -d '/' -f 3); \
-    cd $d; python setup.py sdist; \
-    pip install -f dist/ $MODULE_NAME; \
-    cd -; \
-    done
 
-# Enable tab completion
-RUN echo "\
-_python_argcomplete() {\n\
-    local IFS='\v'\n\
-    COMPREPLY=( \$(IFS=\"\$IFS\"                   COMP_LINE=\"\$COMP_LINE\"                   COMP_POINT=\"\$COMP_POINT\"                   _ARGCOMPLETE_COMP_WORDBREAKS=\"\$COMP_WORDBREAKS\"                   _ARGCOMPLETE=1                   \"\$1\" 8>&1 9>&2 1>/dev/null 2>/dev/null) )\n\
-    if [[ \$? != 0 ]]; then\n\
-        unset COMPREPLY\n\
-    fi\n\
-}\n\
-complete -o nospace -F _python_argcomplete \"az\"\n\
-" > /etc/az.completion
-RUN echo "\nsource '/etc/az.completion'\n" >> /etc/bash.bashrc
 
-WORKDIR /
 
-CMD az; bash
+CMD /bin/bash
